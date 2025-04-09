@@ -1,0 +1,130 @@
+
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <title>當沖部位控管＋單筆風控計算表</title>
+  <style>
+    body { font-family: 'Arial', sans-serif; padding: 20px; background-color: #f9f9f9; }
+    label, select, input, button { display: block; margin: 10px 0; font-size: 16px; }
+    table { border-collapse: collapse; margin-top: 20px; width: 100%; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+    th { background-color: #eee; }
+  </style>
+</head>
+<body>
+  <h2>當沖部位控管＋單筆風控計算表</h2>
+
+  <label>本金（元）：<input type="number" id="capital" value="100000"></label>
+  <label>股價（元）：<input type="number" id="price" step="0.1" value="100"></label>
+  <label>手續費折扣（例如2.8）<input type="number" id="discount" step="0.1" value="2.8"></label>
+  <label>交易方向：
+    <select id="direction">
+      <option value="long">做多</option>
+      <option value="short">做空</option>
+    </select>
+  </label>
+  <button onclick="calculate()">計算</button>
+
+  <table id="resultTable" style="display:none">
+    <thead>
+      <tr>
+        <th>可買張數</th>
+        <th>總股數</th>
+        <th>停損價</th>
+        <th>停利價(+2%)</th>
+        <th>停利價(+3%)</th>
+        <th>停損報酬率</th>
+        <th>停利報酬率(+2%)</th>
+        <th>停利報酬率(+3%)</th>
+      </tr>
+    </thead>
+    <tbody id="resultBody"></tbody>
+  </table>
+
+  <script>
+    function getTickSize(price) {
+      if (price < 10) return 0.01;
+      if (price < 50) return 0.05;
+      if (price < 100) return 0.1;
+      if (price < 500) return 0.5;
+      if (price < 1000) return 1;
+      return 5;
+    }
+
+    function calculate() {
+      const capital = parseFloat(document.getElementById("capital").value);
+      const price = parseFloat(document.getElementById("price").value);
+      const discount = parseFloat(document.getElementById("discount").value);
+      const feeRate = 0.001425 * (discount / 10);
+      const direction = document.getElementById("direction").value;
+      const minFee = 1;
+      const taxRate = 0.0015;
+
+      const maxInvest = Math.floor(capital * 2.5);
+      const costPerLot = price * 1000;
+      const lots = Math.floor(maxInvest / costPerLot);
+      const shares = lots * 1000;
+
+      if (lots === 0) return alert("本金不足以進場，請增加本金或降低股價。")
+
+      const entryValue = price * shares;
+      const entryFee = Math.max(Math.floor(entryValue * feeRate), minFee);
+      const stockCost = direction === 'long' ? entryValue : entryValue;
+      const sellRevenue = entryValue;
+
+      function simulateTargetPrice(targetRate, isProfit) {
+        let currentPrice = price;
+        let bestPrice = null;
+        let bestRate = null;
+        let steps = 0;
+        while (steps < 2000) {
+          const tick = getTickSize(currentPrice);
+          let nextPrice = currentPrice + (direction === 'long' ? (isProfit ? tick : -tick) : (isProfit ? -tick : tick));
+          const tickNext = getTickSize(nextPrice);
+          nextPrice = currentPrice + (direction === 'long' ? (isProfit ? tickNext : -tickNext) : (isProfit ? -tickNext : tickNext));
+
+          const tradeValue = nextPrice * shares;
+          const fee = Math.max(Math.floor(tradeValue * feeRate), minFee);
+          const tax = Math.floor(tradeValue * taxRate);
+
+          let totalCost = direction === 'long'
+            ? stockCost + entryFee + fee + tax
+            : tradeValue + fee + tax;
+          let pnl = direction === 'long'
+            ? tradeValue - totalCost
+            : sellRevenue - entryFee - totalCost;
+
+          let roi = pnl / totalCost;
+
+          if ((isProfit && roi > targetRate && (bestRate === null || roi < bestRate)) ||
+              (!isProfit && roi < targetRate && (bestRate === null || roi > bestRate))) {
+            bestRate = roi;
+            bestPrice = nextPrice;
+          }
+          currentPrice = nextPrice;
+          steps++;
+        }
+        return [bestPrice.toFixed(2), (bestRate * 100).toFixed(2) + "%"];
+      }
+
+      const [stopLossPrice, stopLossReturn] = simulateTargetPrice(-0.01, false);
+      const [tp2Price, tp2Return] = simulateTargetPrice(0.02, true);
+      const [tp3Price, tp3Return] = simulateTargetPrice(0.03, true);
+
+      document.getElementById("resultBody").innerHTML = `
+        <tr>
+          <td>${lots}</td>
+          <td>${shares}</td>
+          <td>${stopLossPrice}</td>
+          <td>${tp2Price}</td>
+          <td>${tp3Price}</td>
+          <td>${stopLossReturn}</td>
+          <td>${tp2Return}</td>
+          <td>${tp3Return}</td>
+        </tr>`;
+      document.getElementById("resultTable").style.display = 'table';
+    }
+  </script>
+</body>
+</html>
